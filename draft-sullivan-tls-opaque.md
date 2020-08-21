@@ -75,7 +75,7 @@ password-authenticated key exchange in TLS 1.3.
 Note that this draft has not received significant security review and should not be the basis for production systems.
 
 OPAQUE [opaque-paper] is a mutual authentication method that enables the establishment of an authenticated cryptographic key between a client and server based on a user's
-memorized password, without ever exposing the password to servers or other entities other than the client machine and without relying on PKI. OPAQUE leverages a primitive called a Strong Asymmetrical Password Authenticated Key Exchange (Strong aPAKE) to provide desirable properties including resistance to pre-computation attacks in the event of a server compromise.
+memorized password, without ever exposing the password to servers or entities other than the client machine and without relying on PKI. OPAQUE leverages a primitive called a Strong Asymmetric Password Authenticated Key Exchange (Strong aPAKE) to provide desirable properties including resistance to pre-computation attacks in the event of a server compromise.
 
 In some cases, it is desirable to combine password-based authentication with traditional PKI-based authentication as a defense-in-depth measure. For example, in the case of IoT devices, it may be useful to validate that both parties were issued a certificate from a certain manufacturer. Another desirable property for password-based authentication systems is the ability to hide the client’s identity from the network. This document describes the use of OPAQUE in TLS 1.3 {{!TLS13=RFC8446}} both as part of the TLS handshake and post-handshake facilitated by Exported Authenticators {{!I-D.ietf-tls-exported-authenticator}}, how the different approaches satisfy the above properties and the trade-offs associated with each design.
 
@@ -90,54 +90,19 @@ when, and only when, they appear in all capitals, as shown here.
 
 # OPAQUE
 
-In OPAQUE [opaque-paper], it is shown that a Strong Asymmetric Password-Authenticated Key Exchange (Strong aPAKE) can be constructed given an oblivious pseudo-random function (OPRF) and authenticated key exchange protocol that is secure against reverse impersonation (a.k.a. KCI). Unlike previous PAKE methods such as SRP {{?RFC2945}} and SPAKE-2 {{?I-D.irtf-cfrg-spake2}}, which require a public salt value, a Strong aPAKE leverages the OPRF private key as salt, making it resistant to pre-computation attacks on the password database stored on the server.
+In OPAQUE [opaque-paper], it is shown that a Strong Asymmetric Password-Authenticated Key Exchange (Strong aPAKE) can be constructed given an oblivious pseudo-random function (OPRF) and authenticated key exchange protocol that is secure against reverse impersonation (a.k.a. KCI). Unlike previous PAKE methods such as SRP {{?RFC2945}} and SPAKE-2 {{?I-D.irtf-cfrg-spake2}}, which require a public salt value, a Strong aPAKE leverages the OPRF private key as a salt, making it resistant to pre-computation attacks on the password database stored on the server.
 
 TLS 1.3 provides a KCI-secure key agreement algorithm suitable for use with OPAQUE. This document describes three instantiations of OPAQUE in TLS 1.3: one based on digital signatures, one on Diffie-Hellman key agreement, and one based on HMQV key exchange. Of the three instantiations, the only one that has known IPR considerations is HMQV.
 
-OPAQUE consists of two distinct phases: password registration and authentication. We will describe the mechanisms for password registration in this document but it is assumed to have been done outside of TLS. During password registration, the client and server establish a shared set of parameters for future authentication and two private-public key pairs are generated, one for the client and one for the server. The server keeps its private key and stores an encapsulated copy of the client’s key pair along with its own public key in an “envelope” that is encrypted with the result of the OPRF operation. Note that it is possible for the server to use the same key for multiple clients. It may be necessary to permit multiple simultaneous server keys in the even of a key rollover. The client does not store any state nor any PKI information.
+OPAQUE consists of two distinct phases: password registration and authentication. We will describe the mechanisms for password registration in this document but it is assumed to have been done independently of the TLS handshake over an authenticated channel. During password registration, the client and server establish a shared set of parameters for future authentication and two private-public key pairs are generated, one for the client and one for the server. The server keeps its private key and stores an encapsulated copy of the client’s key pair along with its own public key in an “envelope” that is encrypted with the result of the OPRF operation. Note that it is possible for the server to use the same key for multiple clients. It may be necessary to permit multiple simultaneous server keys in the even of a key rollover. The client does not store any state nor any PKI information.
 
-We call the first instantiation OPAQUE-Sign. In OPAQUE-Sign, the key pairs generated at password registration time are digital signature keys. These signature keys are used in place of certificate keys for both server and client authentication in a TLS handshake. Client authentication is technically optional, but in practice is almost universally required. OPAQUE-Sign cannot be used alongside certificate-based handshake authentication. This instantiation can also be leveraged to do part of a post-handshake authentication using Exported Authenticators {{!I-D.ietf-tls-exported-authenticator}} given an established TLS connection protected with certificate-based authentication.
+We call the first instantiation OPAQUE-Sign. In OPAQUE-Sign, the key pairs generated at password registration time are digital signature keys. These signature keys are used in place of certificate keys for both server and client authentication in a TLS handshake. OPAQUE client authentication is technically optional, but in practice is almost universally required. If performed inside the TLS handshake, OPAQUE-Sign cannot be used alongside certificate-based handshake authentication. This instantiation can also be leveraged to do part of a post-handshake authentication using Exported Authenticators {{!I-D.ietf-tls-exported-authenticator}} given an established TLS connection protected with certificate-based authentication.
 
-The second and third instantiations are called OPAQUE-3DH and OPAQUE-HMQV. In these instantiations, the key pairs are Diffie-Hellman keys and are used to establish a shared secret that is fed into the key schedule for the handshake. The handshake continues to use Certificate-based authentication. The two methods for establishing the shared key are Diffie-Hellman and HMQV. These instantiations are best suited to use cases in which both password and certificate-based authentication are needed during the initial handshake, which is useful in some scenarios. There is no unilateral authentication in this context, mutual authentication is demonstrated explicitly through the finished messages.
+The second and third instantiations are called OPAQUE-3DH and OPAQUE-HMQV. In these instantiations, the key pairs are Diffie-Hellman keys and are used to establish a shared secret that is fed into the key schedule for the handshake. The handshake continues to use Certificate-based authentication. The two methods for establishing the shared key are Diffie-Hellman and HMQV. These instantiations are best suited to use cases in which both password and certificate-based authentication are needed during the initial handshake, which is useful in some scenarios. There is no unilateral authentication in this context because mutual authentication is demonstrated explicitly through the finished messages.
 
 # Password Registration
 
-Password registration is run between a user U and a server S.  It is
-assumed that the user can authenticate the server during this
-registration phase (this is the only part in OPAQUE that requires
-some form of authenticated channel, either physical, out-of-band,
-PKI-based, etc.)
-
-A set of parameters is chosen. This includes an AuthEnc function for key encapsulation, a group setting for the OPRF (chosen as a cipher defined in Oblivious Pseudorandom Functions (OPRFs) using Prime-Order Groups [I-D.sullivan-cfrg-voprf]), an instantiation (either OPAQUE-Sign, OPAQUE-3DH or OPAQUE-HMQV), and a key type (either a TLS Signature Scheme {{TLS13}} for OPAQUE-Sign or a TLS Supported Group {{TLS13}} for OPAQUE-3DH and OPAQUE-HMQV).
-
-* U chooses password PwdU and a pair of private-public keys PrivU and PubU of the chosen key type.
-
-* S chooses OPRF key kU (random and independent for each user U) and sets vU = g^kU; it also chooses its own pair of private-public keys PrivS and PubS (the server can use the same pair of keys with multiple users), and sends PubS to U.
-
-* U and S run OPRF(kU;PwdU) as defined in with only U learning the result, denoted RwdU (mnemonics for "Randomized PwdU").
-
-* U generates an "envelope" EnvU defined as
-
-
-~~~~~
-EnvU = AuthEnc(RwdU; PrivU, PubU, PubS)
-~~~~~
-
-where AuthEnc is an authenticated encryption function with the
-"key committing" property and is specified below in section.
-In EnvU, all values require authentication and PrivU also requires
-encryption.  PubU can be omitted from EnvU if it can be
-reconstructed from PrivU but while it will save bits on the wire
-it will come at some computational cost during client
-authentication.
-
-* U sends EnvU and PubU to S and erases PwdU, RwdU and all keys. S stores (EnvU, PubS, PrivS, PubU, kU, vU) in a user-specific record.  If PrivS and PubS are used for multiple users, S can store these values separately and omit them from the user's record.
-
-Note (salt).  We note that in OPAQUE the OPRF key acts as the secret salt value that ensures the infeasibility of pre-computation attacks. No extra salt value is needed.
-
-## Implementing EnvU
-
-The encryption for EnvU is required to be a key-committing authenticated encryption algorithm. This, unfortunately, eliminates both AES-GCM and AES-GCM-SIV as wrapping functions. It is possible to create a key-committing authenticated encryption using AES-CBC {{!RFC3602}} or AES-CTR {{?RFC5930}} with HMAC {{!RFC4868}} as long as the keys for encryption and authentication are derived separately with a key domain separation mechanism such as HKDF {{?RFC5869}}.
+Password registration is run as described in [OPAQUE Section 3.1].
 
 # TLS extensions
 
@@ -167,15 +132,13 @@ The structures contained in this extension are defined as:
 
 ~~~~~~~~~~
   struct {
-   opaque identity<0..2^16-1>;
    opaque OPRF_2<1..2^16-1>;
-   opaque vU<1..2^16-1>;
    opaque EnvU<1..2^16-1>;
   } PAKEShareServer;
 
   struct {
     select (Handshake.msg_type) {
-      ClientHello:
+      ClientHello, CertificateRequest:
         PAKEShareClient client_shares<0..2^16-1>;
         OPAQUEType types<0..2^16-1>;
       EncryptedExtensions, Certificate:
@@ -189,7 +152,14 @@ The structures contained in this extension are defined as:
   } PAKEClientAuthExtension;
 ~~~~~~~~~~
 
-This document also defines the following set of types;
+where:
+
+* `identity` is the unique user id used to index the user’s record on the server
+* `types` indicates the set of supported auth types by the client
+* OPRF_1, OPRF_2 are as defined in Oblivious Pseudorandom Functions (OPRFs) using Prime-Order Groups [I-D.sullivan-cfrg-voprf]. The content of OPRF_1 is typically the result of the password hashed into a group element and blinded by an element known to the client. OPRF_2 is the OPRF_1 value operated on by the OPRF private key kU. 
+* `EnvU` is the envelope containing PrivU, PubS, and PubU. (Note that for groups, it may be more space efficient to only include PrivU and have the client derive PubU from PrivU). See {{example-oprf}} for details.
+
+This document also defines the following set of types:
 
 ~~~~~~~~~~
   enum {
@@ -200,8 +170,6 @@ This document also defines the following set of types;
     OPAQUE-HMQV-Cert(5),
   } OPAQUEType;
 ~~~~~~~~~~
-
-The `identity` field is the unique user id used to index the user’s record on the server. The types field indicates the set of supported auth types by the client. The OPRF_1 message is as defined in Oblivious Pseudorandom Functions (OPRFs) using Prime-Order Groups [I-D.sullivan-cfrg-voprf]. The content of OPRF_1 is typically the result of the password hashed into a group element and blinded by an element known to the client. OPRF_2 is the OPRF_1 value operated on by the OPRF private key kU. vU is the public component of kU and EnvU is the envelope containing PrivU, PubS, and PubU. (Note that for groups, it may be more space efficient to only include PrivU and have the client derive PubU from PrivU). See {{example-oprf}} for details.
 
 This document also describes a new CertificateEntry structure that corresponds to an authentication via a signature derived using OPAQUE. This structure serves as a placeholder for the PAKEServerAuthExtension extension.
 
@@ -279,7 +247,7 @@ For the certificate version of OPAQUE (OPAQUE-3DH-Cert, OPAQUE-HMQV-Cert), the s
 
 ## OPAQUE-Sign
 
-In this modes of operation, the OPAQUE private keys are used for digital signatures and are used to define a new Certificate type and CertificateVerify algorithm. Like the 3DH and HKDF instantiations above, the identity of the client is sent in the clear in the client’s first flight unless a mechanism like ESNI [I-D.ietf-tls-esni] is created to protect it.
+In this mode of operation, the OPAQUE private keys are used for digital signatures and are used to define a new Certificate type and CertificateVerify algorithm. Like the 3DH and HKDF instantiations above, the identity of the client is sent in the clear in the client’s first flight unless a mechanism like ESNI [I-D.ietf-tls-esni] is created to protect it.
 
 Upon receiving a PAKEServerAuth extension, the server checks to see if it has a matching record for this identity. If the record does not exist, the handshake is aborted with a TBD error message. If the record does exist, but the key type of the record does not match any of the supported_signatures sent in the the ClientHello, the handshake must be aborted with a TBD error.
 
@@ -304,12 +272,11 @@ struct {
 
 Given a matching signature_scheme and an identity with a matching key type, the server returns a certificate message with type OPAQUE-Sign with PAKEServerAuth as an extension. The private key used in the CertificateVerify message is set to PrivS, and the client verifies it using PubS.
 
-It is RECOMMENDED that the server includes a CertificateRequest message with a PAKEClientAuth and the identity originally sent in the PAKEServerAuth extension from the client hello. On receiving a CertificateRequest message with a PAKEClientAuth extension, the client returns a CertificateVerify message signed by PrivC which is validated by the server using PubC.
+It is RECOMMENDED that the server include a CertificateRequest message with a PAKEClientAuth and the identity originally sent in the PAKEServerAuth extension from the ClientHello. On receiving a CertificateRequest message with a PAKEClientAuth extension, the client returns a CertificateVerify message signed by PrivC which is validated by the server using PubC.
 
 # Integration into Exported Authenticators
 
 Neither of the above mechanisms provides privacy for the user during the authentication phase, as the user id is sent in the clear. It is possible to create an encryption mechanism like ESNI [I-D.ietf-tls-esni] to protect these values, but this is not in scope for this document. Additionally, OPAQUE-Sign has the drawback that it cannot be used in conjunction with certificate-based authentication.
-
 
 It is possible to address both the privacy concerns and the requirement for certificate-based authentication by using OPAQUE-Sign in Exported Authenticator {{!I-D.ietf-tls-exported-authenticator}} flow, since exported authenticators are sent over a secure channel that is typically established with certificate-based authentication. Using Exported Authenticators for OPAQUE has the additional benefit that it can be triggered at any time after a TLS session has been established, which better fits modern web-based authentication mechanism.
 
